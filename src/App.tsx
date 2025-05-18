@@ -1,5 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
+import {
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  doc
+} from 'firebase/firestore'
+import { db } from './firebase'
 
 const API_KEY = '7fcdde2676e1310fb24f750c6ffccd9b'
 
@@ -12,14 +20,18 @@ interface Content {
 export default function App() {
   const [search, setSearch] = useState('')
   const [results, setResults] = useState<Content[]>([])
-  const [watchList, setWatchList] = useState<number[]>(() => {
-    const saved = localStorage.getItem('watchList')
-    return saved ? JSON.parse(saved) : []
-  })
+  const [watchList, setWatchList] = useState<Content[]>([])
 
   useEffect(() => {
-    localStorage.setItem('watchList', JSON.stringify(watchList))
-  }, [watchList])
+    async function carregarLista() {
+      const snapshot = await getDocs(collection(db, 'watchlist'))
+      const lista: Content[] = snapshot.docs.map(doc => ({
+        ...(doc.data() as Content)
+      }))
+      setWatchList(lista)
+    }
+    carregarLista()
+  }, [])
 
   const handleSearch = async () => {
     if (!search) return
@@ -30,14 +42,28 @@ export default function App() {
         query: search
       }
     })
-    setResults(res.data.results)
+    const filtrado = res.data.results.filter((item: any) => item.title)
+    setResults(filtrado)
   }
 
-  const toggleWatch = (id: number) => {
-    setWatchList(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    )
+  const toggleWatch = async (item: Content) => {
+    const existe = watchList.find(i => i.id === item.id)
+    if (existe) {
+      // Remover do Firestore
+      const snapshot = await getDocs(collection(db, 'watchlist'))
+      const docToDelete = snapshot.docs.find(doc => doc.data().id === item.id)
+      if (docToDelete) {
+        await deleteDoc(doc(db, 'watchlist', docToDelete.id))
+      }
+      setWatchList(watchList.filter(i => i.id !== item.id))
+    } else {
+      // Adicionar ao Firestore
+      await addDoc(collection(db, 'watchlist'), item)
+      setWatchList([...watchList, item])
+    }
   }
+
+  const isInList = (id: number) => watchList.some(i => i.id === id)
 
   return (
     <div className="p-4 max-w-3xl mx-auto">
@@ -62,11 +88,9 @@ export default function App() {
             <p>{item.title}</p>
             <button
               className="mt-2 px-2 py-1 bg-red-600 rounded"
-              onClick={() => toggleWatch(item.id)}
+              onClick={() => toggleWatch(item)}
             >
-              {watchList.includes(item.id)
-                ? 'Remover da Lista'
-                : 'Adicionar à Lista'}
+              {isInList(item.id) ? 'Remover da Lista' : 'Adicionar à Lista'}
             </button>
           </div>
         ))}
